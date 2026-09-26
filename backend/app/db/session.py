@@ -1,7 +1,7 @@
 """Database engine and session management."""
 
-from collections.abc import Iterator
 import logging
+from collections.abc import Iterator
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -10,28 +10,57 @@ from app.core.config import settings
 
 logger = logging.getLogger("stocksense.db")
 
-_db_url = settings.DATABASE_URL
-_is_sqlite = _db_url.startswith("sqlite")
+SQLITE_FALLBACK_URL = "sqlite:///./stocksense.db"
 
-try:
+
+def _build_engine():
+    """Create the engine, optionally falling back to SQLite.
+
+    The fallback is opt-in (``ALLOW_SQLITE_FALLBACK``, off by default). Falling
+    back silently is dangerous: stock written to a local SQLite file is
+    invisible in PostgreSQL, so inventory would appear to vanish. With the flag
+    off we fail loudly instead, which is the right behaviour for a system whose
+    whole job is a single consistent stock state.
+    """
+    url = settings.DATABASE_URL
+    is_sqlite = url.startswith("sqlite")
+
     engine = create_engine(
-        _db_url,
+        url,
         pool_pre_ping=True,
-        connect_args={"check_same_thread": False} if _is_sqlite else {},
+        connect_args={"check_same_thread": False} if is_sqlite else {},
         echo=False,
     )
-    if not _is_sqlite:
-        with engine.connect() as conn:
+
+    if is_sqlite:
+        return engine, True
+
+    try:
+        with engine.connect():
             pass
-except Exception as exc:
-    logger.warning("Could not connect to database %s (%s). Falling back to SQLite.", _db_url, exc)
-    _db_url = "sqlite:///./stocksense.db"
-    _is_sqlite = True
-    engine = create_engine(
-        _db_url,
-        connect_args={"check_same_thread": False},
-        echo=False,
-    )
+        return engine, False
+    except Exception as exc:
+        if not settings.ALLOW_SQLITE_FALLBACK:
+            logger.error("Cannot connect to the database at %s: %s", url, exc)
+            raise
+        logger.warning(
+            "Cannot connect to %s (%s). ALLOW_SQLITE_FALLBACK is on, so using %s "
+            "- data written here will NOT be in PostgreSQL.",
+            url,
+            exc,
+            SQLITE_FALLBACK_URL,
+        )
+        return (
+            create_engine(
+                SQLITE_FALLBACK_URL,
+                connect_args={"check_same_thread": False},
+                echo=False,
+            ),
+            True,
+        )
+
+
+engine, IS_SQLITE = _build_engine()
 
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, class_=Session)
 
@@ -43,4 +72,3 @@ def get_db() -> Iterator[Session]:
         yield db
     finally:
         db.close()
-
