@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-
 import { toErrorMessage } from '../api/client'
 import Alert from '../components/Alert'
 import Button from '../components/Button'
@@ -20,7 +19,7 @@ export default function Login() {
   const update = (key) => (event) => setForm({ ...form, [key]: event.target.value })
 
   const handleSubmit = async (event) => {
-    event.preventDefault()
+    if (event) event.preventDefault()
     setError('')
     setNotice('')
     setSubmitting(true)
@@ -28,7 +27,22 @@ export default function Login() {
       await signIn(form.email.trim(), form.password)
       navigate(location.state?.from ?? '/dashboard', { replace: true })
     } catch (err) {
-      setError(toErrorMessage(err, 'Unable to log in. Please try again.'))
+      setError(toErrorMessage(err, 'Unable to log in. Please check your email and password.'))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleQuickFill = async (email, password) => {
+    setForm({ email, password })
+    setError('')
+    setNotice('')
+    setSubmitting(true)
+    try {
+      await signIn(email, password)
+      navigate('/dashboard', { replace: true })
+    } catch (err) {
+      setError(toErrorMessage(err, 'Quick login failed.'))
     } finally {
       setSubmitting(false)
     }
@@ -37,22 +51,49 @@ export default function Login() {
   return (
     <>
       <header className="auth-card__head">
-        <h2>Welcome back</h2>
-        <p>Log in to your StockSense workspace.</p>
+        <h2>Welcome Back</h2>
+        <p>Enter your credentials to access your workspace.</p>
       </header>
 
-      <Alert variant="success" onDismiss={() => setNotice('')}>
-        {notice}
-      </Alert>
-      <Alert onDismiss={() => setError('')}>{error}</Alert>
+      {notice && (
+        <Alert variant="success" onDismiss={() => setNotice('')}>
+          {notice}
+        </Alert>
+      )}
+      {error && <Alert onDismiss={() => setError('')}>{error}</Alert>}
 
-      <form className="form" onSubmit={handleSubmit} noValidate>
+      {/* Quick Demo Credentials Box */}
+      <div className="demo-credentials-box">
+        <div className="demo-credentials-box__header">
+          <span>⚡ One-Click Quick Demo Login:</span>
+        </div>
+        <div className="demo-credentials-box__chips">
+          <button
+            type="button"
+            className="demo-chip demo-chip--admin"
+            onClick={() => handleQuickFill('admin@stocksense.com', 'Admin123!')}
+            disabled={submitting}
+          >
+            🔑 Admin Login
+          </button>
+          <button
+            type="button"
+            className="demo-chip demo-chip--manager"
+            onClick={() => handleQuickFill('manager@stocksense.com', 'Manager123!')}
+            disabled={submitting}
+          >
+            📋 Manager Login
+          </button>
+        </div>
+      </div>
+
+      <form className="form" onSubmit={handleSubmit} noValidate style={{ marginTop: '1.25rem' }}>
         <Field
-          label="Work email"
+          label="Work Email Address"
           type="email"
           name="email"
           autoComplete="email"
-          placeholder="you@company.com"
+          placeholder="e.g. admin@stocksense.com"
           value={form.email}
           onChange={update('email')}
           required
@@ -62,28 +103,29 @@ export default function Login() {
           type="password"
           name="password"
           autoComplete="current-password"
-          placeholder="Enter your password"
+          placeholder="••••••••••••"
           value={form.password}
           onChange={update('password')}
           showPasswordToggle
           required
         />
 
-        <div className="form__row form__row--between">
+        <div className="form__row form__row--between" style={{ margin: '0.25rem 0' }}>
+          <span className="remember-text">Secure SSL Encrypted Session</span>
           <Link className="link" to="/forgot-password">
             Forgot password?
           </Link>
         </div>
 
-        <Button type="submit" loading={submitting} className="btn--block">
-          {submitting ? 'Logging in...' : 'Log in'}
+        <Button type="submit" loading={submitting} className="btn--block btn--lg">
+          {submitting ? 'Authenticating...' : 'Sign In to Dashboard'}
         </Button>
       </form>
 
       <p className="auth-card__foot">
-        New to StockSense?{' '}
+        Don't have an account yet?{' '}
         <Link className="link" to="/signup">
-          Create an account
+          Create a new workspace account
         </Link>
       </p>
     </>
