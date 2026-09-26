@@ -1,97 +1,83 @@
-import { Link } from 'react-router-dom'
-
-import { useAuth } from '../context/AuthContext'
-import { NAV_SECTIONS } from '../navigation'
-
-const MODULES = NAV_SECTIONS.flatMap((section) => section.items).filter(
-  (item) => item.to !== '/dashboard' && item.to !== '/profile',
-)
-
-function formatDate(value) {
-  if (!value) return '-'
-  return new Date(value).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  })
-}
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import * as invApi from '../api/inventory'
+import { toErrorMessage } from '../api/client'
+import Alert from '../components/Alert'
 
 export default function Dashboard() {
-  const { user } = useAuth()
+  const navigate = useNavigate()
+  const [stats, setStats] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    async function loadStats() {
+      setLoading(true)
+      try {
+        const data = await invApi.fetchDashboardStats()
+        setStats(data)
+      } catch (err) {
+        setError(toErrorMessage(err, 'Failed to load dashboard statistics.'))
+      } finally {
+        setLoading(false)
+      }
+    }
+    loadStats()
+  }, [])
 
   return (
-    <div className="stack">
-      <section className="welcome">
-        <div>
-          <p className="welcome__eyebrow">Signed in</p>
-          <h2>Welcome, {user?.name?.split(' ')[0]}</h2>
-          <p className="welcome__text">
-            Your account is active and connected to the StockSense backend. Inventory
-            modules are being added next.
-          </p>
-        </div>
-        <span className={`badge badge--${user?.role}`}>{user?.role}</span>
-      </section>
+    <div className="page-container">
+      {error && <Alert onDismiss={() => setError('')}>{error}</Alert>}
 
-      {/* Everything below comes from GET /api/v1/auth/me - no placeholder values. */}
-      <section className="card">
-        <header className="card__head">
-          <h3>Account details</h3>
-          <Link className="link" to="/profile">
-            Manage profile
-          </Link>
-        </header>
-        <dl className="detail-grid">
-          <div>
-            <dt>Name</dt>
-            <dd>{user?.name}</dd>
-          </div>
-          <div>
-            <dt>Email</dt>
-            <dd>{user?.email}</dd>
-          </div>
-          <div>
-            <dt>Role</dt>
-            <dd className="capitalize">{user?.role}</dd>
-          </div>
-          <div>
-            <dt>Status</dt>
-            <dd>
-              <span className={`pill ${user?.is_active ? 'pill--ok' : 'pill--off'}`}>
-                {user?.is_active ? 'Active' : 'Inactive'}
-              </span>
-            </dd>
-          </div>
-          <div>
-            <dt>Member since</dt>
-            <dd>{formatDate(user?.created_at)}</dd>
-          </div>
-          <div>
-            <dt>User ID</dt>
-            <dd>#{user?.id}</dd>
-          </div>
-        </dl>
-      </section>
-
-      <section className="card">
-        <header className="card__head">
-          <h3>Modules</h3>
-          <span className="card__hint">Coming next</span>
-        </header>
-        <div className="module-grid">
-          {MODULES.map((module) => (
-            <Link key={module.to} className="module-tile" to={module.to}>
-              <span className="module-tile__icon" aria-hidden="true">
-                {module.icon}
-              </span>
-              <span className="module-tile__body">
-                <strong>{module.label}</strong>
-                <small>{module.description}</small>
-              </span>
-            </Link>
-          ))}
+      {/* KPI Cards Grid */}
+      <div className="kpi-grid">
+        <div className="card kpi-card">
+          <span className="kpi-card__label">Total Products in Stock</span>
+          <span className="kpi-card__value">{loading ? '...' : stats?.total_products}</span>
+          <span className="kpi-card__sub">{stats?.total_stock_units} total physical units</span>
         </div>
-      </section>
+
+        <div className="card kpi-card kpi-card--warning">
+          <span className="kpi-card__label">Low Stock Alerts</span>
+          <span className="kpi-card__value">{loading ? '...' : stats?.low_stock_count}</span>
+          <span className="kpi-card__sub">Below reorder threshold</span>
+        </div>
+
+        <div className="card kpi-card kpi-card--info">
+          <span className="kpi-card__label">Pending Receipts</span>
+          <span className="kpi-card__value">{loading ? '...' : stats?.pending_receipts_count}</span>
+          <span className="kpi-card__sub">Draft shipments to receive</span>
+        </div>
+
+        <div className="card kpi-card">
+          <span className="kpi-card__label">Active Warehouses</span>
+          <span className="kpi-card__value">{loading ? '...' : stats?.total_warehouses}</span>
+          <span className="kpi-card__sub">{stats?.total_locations} storage locations</span>
+        </div>
+      </div>
+
+      {/* Quick Action Cards */}
+      <div className="grid-responsive" style={{ marginTop: '1.5rem' }}>
+        <div className="card dashboard-action-card" onClick={() => navigate('/products')}>
+          <h3>📦 Manage Products</h3>
+          <p>Add new items, monitor SKU inventory, set reorder alerts, and view location stock breakdown.</p>
+        </div>
+
+        <div className="card dashboard-action-card" onClick={() => navigate('/operations')}>
+          <h3>🚚 Process Receipts</h3>
+          <p>Create draft receipts for vendor deliveries, validate incoming stock, and log moves.</p>
+        </div>
+
+        <div className="card dashboard-action-card" onClick={() => navigate('/warehouse')}>
+          <h3>🏭 Warehouses & Locations</h3>
+          <p>Configure distribution centers, receiving docks, internal racks, and storage zones.</p>
+        </div>
+
+        <div className="card dashboard-action-card" onClick={() => navigate('/move-history')}>
+          <h3>📜 Move History & Ledger</h3>
+          <p>Review audit logs of all physical stock movements across your organization.</p>
+        </div>
+      </div>
     </div>
   )
 }

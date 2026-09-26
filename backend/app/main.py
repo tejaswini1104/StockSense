@@ -9,7 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.router import api_router
 from app.core.config import settings
 from app.db.base import Base
-from app.db.session import engine
+from app.db.session import SessionLocal, engine
+from app.db.seed import seed_data_if_empty
 import app.models  # noqa: F401
 
 logging.basicConfig(
@@ -22,6 +23,12 @@ logging.basicConfig(
 async def lifespan(app: FastAPI):
     # Ensure database tables exist
     Base.metadata.create_all(bind=engine)
+    # Seed initial data if empty
+    db = SessionLocal()
+    try:
+        seed_data_if_empty(db)
+    finally:
+        db.close()
     yield
 
 
