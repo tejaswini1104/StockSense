@@ -4,18 +4,40 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.security import hash_password
 from app.models.category import Category
 from app.models.location import Location, LocationType
 from app.models.product import Product
 from app.models.receipt import Receipt, ReceiptItem, ReceiptStatus
 from app.models.stock_ledger import StockLedger
 from app.models.stock_quant import StockQuant
+from app.models.user import User, UserRole
 from app.models.warehouse import Warehouse
 
 logger = logging.getLogger("stocksense.seed")
 
 
 def seed_data_if_empty(db: Session) -> None:
+    # Seed default user if no users exist
+    existing_user = db.scalars(select(User)).first()
+    if not existing_user:
+        admin_user = User(
+            email="admin@stocksense.com",
+            hashed_password=hash_password("Admin123!"),
+            name="StockSense Admin",
+            role=UserRole.ADMIN,
+            is_active=True,
+        )
+        manager_user = User(
+            email="manager@stocksense.com",
+            hashed_password=hash_password("Manager123!"),
+            name="Inventory Manager",
+            role=UserRole.MANAGER,
+            is_active=True,
+        )
+        db.add_all([admin_user, manager_user])
+        db.commit()
+
     # Check if warehouses exist
     existing_wh = db.scalars(select(Warehouse)).first()
     if existing_wh:
