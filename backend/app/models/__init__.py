@@ -16,8 +16,16 @@ try:
 except ImportError:
     pass
 
+try:
+    from app.models.delivery import DeliveryItem, DeliveryOrder, DeliveryStatus  # noqa: F401
+except ImportError:
+    pass
+
 __all__ = [
     "Category",
+    "DeliveryItem",
+    "DeliveryOrder",
+    "DeliveryStatus",
     "InternalTransfer",
     "InternalTransferItem",
     "Location",

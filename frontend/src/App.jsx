@@ -6,6 +6,7 @@ import { AuthProvider } from './context/AuthContext'
 import AppLayout from './layouts/AppLayout'
 import AuthLayout from './layouts/AuthLayout'
 import Dashboard from './pages/Dashboard'
+import Deliveries from './pages/Deliveries'
 import ForgotPassword from './pages/ForgotPassword'
 import Login from './pages/Login'
 import MoveHistory from './pages/MoveHistory'
@@ -38,6 +39,7 @@ export default function App() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/products" element={<Products />} />
             <Route path="/operations" element={<Operations />} />
+            <Route path="/deliveries" element={<Deliveries />} />
             <Route path="/warehouse" element={<Warehouse />} />
             <Route path="/move-history" element={<MoveHistory />} />
             <Route path="/stock-ledger" element={<StockLedger />} />

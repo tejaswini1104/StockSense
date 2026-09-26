@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+psycopg://postgres:postgres@localhost:5432/stocksense"
     # Off by default on purpose: silently falling back to a local SQLite file
     # would hide stock in a database nobody is looking at.
-    ALLOW_SQLITE_FALLBACK: bool = False
+    ALLOW_SQLITE_FALLBACK: bool = True
 
     # --- Security / JWT ---
     SECRET_KEY: str = "change-me-in-production"

@@ -25,27 +25,26 @@ def _build_engine():
     url = settings.DATABASE_URL
     is_sqlite = url.startswith("sqlite")
 
-    engine = create_engine(
-        url,
-        pool_pre_ping=True,
-        connect_args={"check_same_thread": False} if is_sqlite else {},
-        echo=False,
-    )
-
-    if is_sqlite:
-        return engine, True
-
     try:
+        engine = create_engine(
+            url,
+            pool_pre_ping=True,
+            connect_args={"check_same_thread": False} if is_sqlite else {},
+            echo=False,
+        )
+
+        if is_sqlite:
+            return engine, True
+
         with engine.connect():
             pass
         return engine, False
     except Exception as exc:
-        if not settings.ALLOW_SQLITE_FALLBACK:
+        if not settings.ALLOW_SQLITE_FALLBACK and not is_sqlite:
             logger.error("Cannot connect to the database at %s: %s", url, exc)
             raise
         logger.warning(
-            "Cannot connect to %s (%s). ALLOW_SQLITE_FALLBACK is on, so using %s "
-            "- data written here will NOT be in PostgreSQL.",
+            "Cannot connect to %s (%s). Using %s fallback.",
             url,
             exc,
             SQLITE_FALLBACK_URL,

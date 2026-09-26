@@ -46,9 +46,15 @@ export const NAV_SECTIONS = [
     items: [
       {
         to: '/operations',
-        label: 'Operations',
-        description: 'Receipts, issues, transfers and adjustments.',
+        label: 'Receipts',
+        description: 'Vendor goods receipts and incoming shipments.',
         icon: icon('M4 8h11m0 0-3-3m3 3-3 3M20 16H9m0 0 3-3m-3 3 3 3'),
+      },
+      {
+        to: '/deliveries',
+        label: 'Deliveries',
+        description: 'Customer delivery orders and outgoing shipments.',
+        icon: icon('M5 8h14M5 8a2 2 0 1 1 0-4h14a2 2 0 1 1 0 4M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8'),
       },
       {
         to: '/move-history',

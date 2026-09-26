@@ -49,6 +49,28 @@ export const createReceipt = (payload) =>
 export const validateReceipt = (id) =>
   client.post(`/receipts/${id}/validate`).then((res) => res.data)
 
+// --- Deliveries ---
+export const fetchDeliveries = (params = {}) =>
+  client.get('/deliveries', { params }).then((res) => res.data)
+
+export const fetchDeliveryById = (id) =>
+  client.get(`/deliveries/${id}`).then((res) => res.data)
+
+export const createDelivery = (payload) =>
+  client.post('/deliveries', payload).then((res) => res.data)
+
+export const updateDelivery = (id, payload) =>
+  client.put(`/deliveries/${id}`, payload).then((res) => res.data)
+
+export const pickDelivery = (id) =>
+  client.post(`/deliveries/${id}/pick`).then((res) => res.data)
+
+export const packDelivery = (id) =>
+  client.post(`/deliveries/${id}/pack`).then((res) => res.data)
+
+export const validateDelivery = (id) =>
+  client.post(`/deliveries/${id}/validate`).then((res) => res.data)
+
 // --- Internal Transfers ---
 export const fetchInternalTransfers = (params = {}) =>
   client.get('/internal-transfers', { params }).then((res) => res.data)
