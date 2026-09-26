@@ -1,452 +1,453 @@
-import { useEffect, useState } from 'react'
-import * as invApi from '../api/inventory'
+import { useCallback, useEffect, useState } from 'react'
+import { listCategories, listProducts } from '../api/catalog'
 import { toErrorMessage } from '../api/client'
+import AddProductModal from '../components/AddProductModal'
 import Alert from '../components/Alert'
 import Button from '../components/Button'
-import Field from '../components/Field'
+import CategoryManagerModal from '../components/CategoryManagerModal'
+import EditProductModal from '../components/EditProductModal'
+import ProductStockModal from '../components/ProductStockModal'
 
 export default function Products() {
   const [products, setProducts] = useState([])
   const [categories, setCategories] = useState([])
-  const [locations, setLocations] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
+  const [totalCount, setTotalCount] = useState(0)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+  const [totalPages, setTotalPages] = useState(1)
 
-  // Filters
-  const [search, setSearch] = useState('')
+  // Summary counts for dashboard overview
+  const [lowStockCount, setLowStockCount] = useState(0)
+  const [outOfStockCount, setOutOfStockCount] = useState(0)
+
+  // Filter & Search states
+  const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('')
-  const [lowStockOnly, setLowStockOnly] = useState(false)
+  const [selectedStock, setSelectedStock] = useState('')
+  const [selectedActive, setSelectedActive] = useState('')
 
-  // Modals & Drawers
-  const [showCreateModal, setShowCreateModal] = useState(false)
-  const [showCatModal, setShowCatModal] = useState(false)
-  const [selectedProduct, setSelectedProduct] = useState(null)
+  // UI state
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
-  // Create Product Form
-  const [pForm, setPForm] = useState({
-    sku: '',
-    name: '',
-    description: '',
-    category_id: '',
-    uom: 'Units',
-    min_reorder_qty: 10,
-    max_reorder_qty: 100,
-    initial_stock: '',
-    initial_location_id: '',
-  })
-  const [creatingP, setCreatingP] = useState(false)
+  // Modals state
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false)
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false)
+  const [editingProduct, setEditingProduct] = useState(null)
+  const [viewingStockProduct, setViewingStockProduct] = useState(null)
 
-  // Create Category Form
-  const [catForm, setCatForm] = useState({ name: '', description: '' })
-  const [creatingCat, setCreatingCat] = useState(false)
-
-  const loadData = async () => {
-    setLoading(true)
-    setError('')
+  const loadCategories = useCallback(async () => {
     try {
-      const [pData, cData, lData] = await Promise.all([
-        invApi.fetchProducts({
-          search: search.trim() || undefined,
-          category_id: selectedCategory ? Number(selectedCategory) : undefined,
-          low_stock_only: lowStockOnly || undefined,
-        }),
-        invApi.fetchCategories(),
-        invApi.fetchAllLocations(),
-      ])
-      setProducts(pData)
-      setCategories(cData)
-      setLocations(lData)
+      const data = await listCategories(false)
+      setCategories(data)
     } catch (err) {
-      setError(toErrorMessage(err, 'Failed to load products.'))
+      console.error('Failed to load categories', err)
+    }
+  }, [])
+
+  const loadProductsData = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const params = {
+        page,
+        page_size: pageSize,
+      }
+      if (searchQuery.trim()) params.search = searchQuery.trim()
+      if (selectedCategory) params.category_id = Number(selectedCategory)
+      if (selectedStock) params.stock = selectedStock
+      if (selectedActive !== '') params.is_active = selectedActive === 'true'
+
+      const res = await listProducts(params)
+      setProducts(res.items)
+      setTotalCount(res.total)
+      setTotalPages(res.pages)
+    } catch (err) {
+      setError(toErrorMessage(err, 'Failed to fetch products catalogue.'))
     } finally {
       setLoading(false)
     }
-  }
+  }, [page, pageSize, searchQuery, selectedCategory, selectedStock, selectedActive])
+
+  // Load summary metrics for low stock and out of stock counts
+  const loadSummaryStats = useCallback(async () => {
+    try {
+      const [lowRes, outRes] = await Promise.all([
+        listProducts({ stock: 'low_stock', page_size: 1 }),
+        listProducts({ stock: 'out_of_stock', page_size: 1 }),
+      ])
+      setLowStockCount(lowRes.total)
+      setOutOfStockCount(outRes.total)
+    } catch (err) {
+      console.error('Failed to load summary counts', err)
+    }
+  }, [])
 
   useEffect(() => {
-    loadData()
-  }, [selectedCategory, lowStockOnly])
+    loadCategories()
+    loadSummaryStats()
+  }, [loadCategories, loadSummaryStats])
 
-  const handleSearchSubmit = (e) => {
-    e.preventDefault()
-    loadData()
+  useEffect(() => {
+    loadProductsData()
+  }, [loadProductsData])
+
+  const handleClearFilters = () => {
+    setSearchQuery('')
+    setSelectedCategory('')
+    setSelectedStock('')
+    setSelectedActive('')
+    setPage(1)
   }
 
-  const handleCreateProduct = async (e) => {
-    e.preventDefault()
-    setError('')
-    setCreatingP(true)
-    try {
-      await invApi.createProduct({
-        sku: pForm.sku.trim(),
-        name: pForm.name.trim(),
-        description: pForm.description.trim() || undefined,
-        category_id: pForm.category_id ? Number(pForm.category_id) : undefined,
-        uom: pForm.uom || 'Units',
-        min_reorder_qty: Number(pForm.min_reorder_qty) || 0,
-        max_reorder_qty: Number(pForm.max_reorder_qty) || 100,
-        initial_stock: pForm.initial_stock ? Number(pForm.initial_stock) : undefined,
-        initial_location_id: pForm.initial_location_id ? Number(pForm.initial_location_id) : undefined,
-      })
-      setNotice('Product created successfully!')
-      setShowCreateModal(false)
-      setPForm({
-        sku: '',
-        name: '',
-        description: '',
-        category_id: '',
-        uom: 'Units',
-        min_reorder_qty: 10,
-        max_reorder_qty: 100,
-        initial_stock: '',
-        initial_location_id: '',
-      })
-      loadData()
-    } catch (err) {
-      setError(toErrorMessage(err, 'Failed to create product.'))
-    } finally {
-      setCreatingP(false)
+  const handleProductCreated = () => {
+    loadProductsData()
+    loadSummaryStats()
+    loadCategories()
+  }
+
+  const handleProductUpdated = () => {
+    loadProductsData()
+    loadSummaryStats()
+  }
+
+  const renderStockPill = (statusStr, totalStock, uom) => {
+    if (statusStr === 'out_of_stock') {
+      return (
+        <span className="pill pill--out-of-stock">
+          0 {uom} • Out of Stock
+        </span>
+      )
     }
+    if (statusStr === 'low_stock') {
+      return (
+        <span className="pill pill--low-stock">
+          {totalStock} {uom} • Low Stock
+        </span>
+      )
+    }
+    return (
+      <span className="pill pill--in-stock">
+        {totalStock} {uom} • In Stock
+      </span>
+    )
   }
 
-  const handleCreateCategory = async (e) => {
-    e.preventDefault()
-    setError('')
-    setCreatingCat(true)
-    try {
-      await invApi.createCategory({
-        name: catForm.name.trim(),
-        description: catForm.description.trim() || undefined,
-      })
-      setNotice('Category created!')
-      setShowCatModal(false)
-      setCatForm({ name: '', description: '' })
-      const cData = await invApi.fetchCategories()
-      setCategories(cData)
-    } catch (err) {
-      setError(toErrorMessage(err, 'Failed to create category.'))
-    } finally {
-      setCreatingCat(false)
-    }
-  }
-
-  const handleDeleteProduct = async (id, name) => {
-    if (!window.confirm(`Are you sure you want to delete "${name}"?`)) return
-    try {
-      await invApi.deleteProduct(id)
-      setNotice(`Product "${name}" deleted.`)
-      loadData()
-    } catch (err) {
-      setError(toErrorMessage(err, 'Failed to delete product.'))
-    }
-  }
+  const hasActiveFilters = Boolean(searchQuery || selectedCategory || selectedStock || selectedActive !== '')
 
   return (
-    <div className="page-container">
-      {notice && (
-        <Alert variant="success" onDismiss={() => setNotice('')}>
-          {notice}
-        </Alert>
-      )}
-      {error && <Alert onDismiss={() => setError('')}>{error}</Alert>}
+    <div className="stack">
+      {/* Top Header / Action Bar */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+        <div>
+          <h2 style={{ fontSize: '1.4rem', fontWeight: 700, letterSpacing: '-0.02em' }}>Products & Categories</h2>
+          <p style={{ fontSize: '0.88rem', color: 'var(--slate-500)', marginTop: '2px' }}>
+            Manage inventory items, SKUs, categories, reorder thresholds and stock locations.
+          </p>
+        </div>
 
-      {/* Header Controls */}
-      <div className="card toolbar">
-        <form className="toolbar__search" onSubmit={handleSearchSubmit}>
-          <input
-            type="text"
-            className="field__input"
-            placeholder="Search by SKU or Product Name..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <Button type="submit" variant="secondary">
-            Search
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <Button variant="ghost" onClick={() => setIsCategoryModalOpen(true)}>
+            📁 Manage Categories
           </Button>
-        </form>
+          <Button variant="primary" onClick={() => setIsAddModalOpen(true)}>
+            + Add Product
+          </Button>
+        </div>
+      </div>
 
+      {/* Stats Cards */}
+      <div className="stats-grid">
+        <div className="stat-card">
+          <div className="stat-card__icon stat-card__icon--indigo">📦</div>
+          <div className="stat-card__content">
+            <span className="stat-card__val">{totalCount}</span>
+            <span className="stat-card__lbl">Total Products</span>
+          </div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-card__icon stat-card__icon--amber">⚠️</div>
+          <div className="stat-card__content">
+            <span className="stat-card__val" style={{ color: lowStockCount > 0 ? '#b45309' : 'inherit' }}>
+              {lowStockCount}
+            </span>
+            <span className="stat-card__lbl">Low Stock Items</span>
+          </div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-card__icon stat-card__icon--red">🚫</div>
+          <div className="stat-card__content">
+            <span className="stat-card__val" style={{ color: outOfStockCount > 0 ? 'var(--red-600)' : 'inherit' }}>
+              {outOfStockCount}
+            </span>
+            <span className="stat-card__lbl">Out of Stock</span>
+          </div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-card__icon stat-card__icon--green">🏷️</div>
+          <div className="stat-card__content">
+            <span className="stat-card__val">{categories.length}</span>
+            <span className="stat-card__lbl">Categories</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Filter & Search Bar */}
+      <div className="toolbar">
         <div className="toolbar__filters">
+          <div className="search-box">
+            <span className="search-box__icon">🔍</span>
+            <input
+              type="text"
+              placeholder="Search by SKU or product name..."
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value)
+                setPage(1)
+              }}
+            />
+          </div>
+
           <select
-            className="field__input"
+            className="select-input"
             value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
+            onChange={(e) => {
+              setSelectedCategory(e.target.value)
+              setPage(1)
+            }}
           >
             <option value="">All Categories</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
+            {categories.map((cat) => (
+              <option key={cat.id} value={cat.id}>
+                {cat.name}
               </option>
             ))}
           </select>
 
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={lowStockOnly}
-              onChange={(e) => setLowStockOnly(e.target.checked)}
-            />
-            <span>Low Stock Alert</span>
-          </label>
+          <select
+            className="select-input"
+            value={selectedStock}
+            onChange={(e) => {
+              setSelectedStock(e.target.value)
+              setPage(1)
+            }}
+          >
+            <option value="">All Stock Levels</option>
+            <option value="in_stock">In Stock</option>
+            <option value="low_stock">Low Stock</option>
+            <option value="out_of_stock">Out of Stock</option>
+          </select>
 
-          <Button variant="secondary" onClick={() => setShowCatModal(true)}>
-            + Category
-          </Button>
-          <Button onClick={() => setShowCreateModal(true)}>+ Add Product</Button>
+          <select
+            className="select-input"
+            value={selectedActive}
+            onChange={(e) => {
+              setSelectedActive(e.target.value)
+              setPage(1)
+            }}
+          >
+            <option value="">All Statuses</option>
+            <option value="true">Active</option>
+            <option value="false">Inactive</option>
+          </select>
+
+          {hasActiveFilters && (
+            <Button variant="ghost" onClick={handleClearFilters} style={{ padding: '8px 12px', fontSize: '0.84rem' }}>
+              Clear Filters
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* Products Table */}
-      {loading ? (
-        <div className="card loading-state">Loading products catalogue...</div>
-      ) : products.length === 0 ? (
-        <div className="card empty-state">
-          <h3>No products found</h3>
-          <p>Create your first product or adjust search filters.</p>
-          <Button onClick={() => setShowCreateModal(true)}>+ Create Product</Button>
-        </div>
-      ) : (
-        <div className="card table-responsive">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>SKU</th>
-                <th>Name</th>
-                <th>Category</th>
-                <th>UOM</th>
-                <th>Min Reorder</th>
-                <th>Total Stock</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {products.map((p) => (
-                <tr key={p.id}>
-                  <td>
-                    <strong>{p.sku}</strong>
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="link-button"
-                      onClick={() => setSelectedProduct(p)}
-                    >
-                      {p.name}
-                    </button>
-                    {p.description && <small className="block-sub">{p.description}</small>}
-                  </td>
-                  <td>{p.category ? p.category.name : '-'}</td>
-                  <td>{p.uom}</td>
-                  <td>{p.min_reorder_qty}</td>
-                  <td>
-                    <strong style={{ fontSize: '1.05rem' }}>{p.total_stock}</strong> {p.uom}
-                  </td>
-                  <td>
-                    {p.is_low_stock ? (
-                      <span className="badge badge--danger">Low Stock</span>
-                    ) : (
-                      <span className="badge badge--success">In Stock</span>
-                    )}
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="action-btn"
-                      onClick={() => setSelectedProduct(p)}
-                    >
-                      View
-                    </button>
-                    <button
-                      type="button"
-                      className="action-btn action-btn--danger"
-                      onClick={() => handleDeleteProduct(p.id, p.name)}
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Create Product Modal */}
-      {showCreateModal && (
-        <div className="modal-backdrop">
-          <div className="modal-card">
-            <h3>Add New Product</h3>
-            <form onSubmit={handleCreateProduct} className="form">
-              <div className="form__grid">
-                <Field
-                  label="SKU / Code"
-                  placeholder="e.g. PROD-101"
-                  value={pForm.sku}
-                  onChange={(e) => setPForm({ ...pForm, sku: e.target.value })}
-                  required
-                />
-                <Field
-                  label="Product Name"
-                  placeholder="e.g. Steel Rods 10mm"
-                  value={pForm.name}
-                  onChange={(e) => setPForm({ ...pForm, name: e.target.value })}
-                  required
-                />
-              </div>
-
-              <div className="field">
-                <label className="field__label">Category</label>
-                <select
-                  className="field__input"
-                  value={pForm.category_id}
-                  onChange={(e) => setPForm({ ...pForm, category_id: e.target.value })}
-                >
-                  <option value="">Select Category</option>
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form__grid">
-                <Field
-                  label="Unit of Measure (UOM)"
-                  placeholder="Units, Kg, Meters..."
-                  value={pForm.uom}
-                  onChange={(e) => setPForm({ ...pForm, uom: e.target.value })}
-                  required
-                />
-                <Field
-                  label="Min Reorder Qty"
-                  type="number"
-                  value={pForm.min_reorder_qty}
-                  onChange={(e) => setPForm({ ...pForm, min_reorder_qty: e.target.value })}
-                  required
-                />
-              </div>
-
-              <Field
-                label="Description (Optional)"
-                value={pForm.description}
-                onChange={(e) => setPForm({ ...pForm, description: e.target.value })}
-              />
-
-              <hr />
-              <p><strong>Initial Stock (Optional)</strong></p>
-              <div className="form__grid">
-                <Field
-                  label="Initial Qty"
-                  type="number"
-                  placeholder="0"
-                  value={pForm.initial_stock}
-                  onChange={(e) => setPForm({ ...pForm, initial_stock: e.target.value })}
-                />
-                <div className="field">
-                  <label className="field__label">Receiving Location</label>
-                  <select
-                    className="field__input"
-                    value={pForm.initial_location_id}
-                    onChange={(e) => setPForm({ ...pForm, initial_location_id: e.target.value })}
-                  >
-                    <option value="">Select Location</option>
-                    {locations.map((loc) => (
-                      <option key={loc.id} value={loc.id}>
-                        {loc.warehouse_name ? `${loc.warehouse_name} - ` : ''}{loc.name} ({loc.code})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="modal-actions">
-                <Button type="button" variant="secondary" onClick={() => setShowCreateModal(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" loading={creatingP}>
-                  Save Product
-                </Button>
-              </div>
-            </form>
+      {/* Error alert */}
+      {error && (
+        <Alert tone="error">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+            <span>{error}</span>
+            <Button variant="ghost" onClick={loadProductsData} style={{ padding: '4px 10px', fontSize: '0.8rem' }}>
+              Retry
+            </Button>
           </div>
-        </div>
+        </Alert>
       )}
 
-      {/* Create Category Modal */}
-      {showCatModal && (
-        <div className="modal-backdrop">
-          <div className="modal-card">
-            <h3>Add Category</h3>
-            <form onSubmit={handleCreateCategory} className="form">
-              <Field
-                label="Category Name"
-                placeholder="e.g. Raw Materials"
-                value={catForm.name}
-                onChange={(e) => setCatForm({ ...catForm, name: e.target.value })}
-                required
-              />
-              <Field
-                label="Description"
-                placeholder="Optional notes"
-                value={catForm.description}
-                onChange={(e) => setCatForm({ ...catForm, description: e.target.value })}
-              />
-              <div className="modal-actions">
-                <Button type="button" variant="secondary" onClick={() => setShowCatModal(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" loading={creatingCat}>
-                  Save Category
-                </Button>
-              </div>
-            </form>
+      {/* Product Table */}
+      <div className="table-card">
+        {loading ? (
+          <div className="loading-state">
+            <div className="spinner spinner--lg" />
+            <span>Loading products catalogue…</span>
           </div>
-        </div>
-      )}
-
-      {/* View Details Modal */}
-      {selectedProduct && (
-        <div className="modal-backdrop">
-          <div className="modal-card">
-            <h3>{selectedProduct.name} Details</h3>
-            <p><strong>SKU:</strong> {selectedProduct.sku}</p>
-            <p><strong>Category:</strong> {selectedProduct.category?.name || 'Unassigned'}</p>
-            <p><strong>Unit of Measure:</strong> {selectedProduct.uom}</p>
-            <p><strong>Min Reorder Threshold:</strong> {selectedProduct.min_reorder_qty}</p>
-            <p><strong>Total Stock:</strong> {selectedProduct.total_stock} {selectedProduct.uom}</p>
-
-            <h4 style={{ marginTop: '1rem' }}>Stock Distribution by Location</h4>
-            {selectedProduct.stock_by_location.length === 0 ? (
-              <p>No stock currently assigned to locations.</p>
+        ) : products.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state__icon">🔍</div>
+            <h4>{hasActiveFilters ? 'No Matching Products' : 'Catalogue is Empty'}</h4>
+            <p>
+              {hasActiveFilters
+                ? 'No products match your search or filter criteria. Try resetting filters.'
+                : 'Get started by creating your first product item.'}
+            </p>
+            {hasActiveFilters ? (
+              <Button variant="ghost" onClick={handleClearFilters}>
+                Reset Search Filters
+              </Button>
             ) : (
+              <Button variant="primary" onClick={() => setIsAddModalOpen(true)}>
+                + Create Product
+              </Button>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="table-container">
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Warehouse</th>
-                    <th>Location</th>
-                    <th>Quantity</th>
+                    <th>Product & SKU</th>
+                    <th>Category</th>
+                    <th>UOM</th>
+                    <th>Stock On-Hand</th>
+                    <th>Reorder Level</th>
+                    <th>Status</th>
+                    <th style={{ textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {selectedProduct.stock_by_location.map((sq) => (
-                    <tr key={sq.id}>
-                      <td>{sq.warehouse_name || '-'}</td>
-                      <td>{sq.location_name}</td>
-                      <td><strong>{sq.quantity}</strong> {selectedProduct.uom}</td>
+                  {products.map((product) => (
+                    <tr key={product.id}>
+                      <td>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                          <strong style={{ fontSize: '0.94rem', color: 'var(--slate-900)' }}>{product.name}</strong>
+                          <div>
+                            <span className="sku-badge">{product.sku}</span>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td>
+                        {product.category ? (
+                          <span style={{ fontSize: '0.88rem', fontWeight: 500, color: 'var(--slate-700)' }}>
+                            {product.category.name}
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '0.82rem', color: 'var(--slate-400)', fontStyle: 'italic' }}>
+                            Uncategorized
+                          </span>
+                        )}
+                      </td>
+
+                      <td style={{ textTransform: 'uppercase', fontSize: '0.82rem', fontWeight: 600, color: 'var(--slate-600)' }}>
+                        {product.unit_of_measure}
+                      </td>
+
+                      <td>
+                        {renderStockPill(product.stock_status, product.total_stock, product.unit_of_measure)}
+                      </td>
+
+                      <td style={{ fontSize: '0.88rem', fontWeight: 500 }}>
+                        {product.reorder_level} {product.unit_of_measure}
+                      </td>
+
+                      <td>
+                        <span className={`pill ${product.is_active ? 'pill--ok' : 'pill--off'}`}>
+                          {product.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+
+                      <td>
+                        <div className="action-buttons" style={{ justifyContent: 'flex-end' }}>
+                          <button
+                            type="button"
+                            className="btn-icon"
+                            title="View stock per location"
+                            onClick={() => setViewingStockProduct(product)}
+                          >
+                            📍 Locations
+                          </button>
+
+                          <button
+                            type="button"
+                            className="btn-icon"
+                            title="Edit product details"
+                            onClick={() => setEditingProduct(product)}
+                          >
+                            ✏️ Edit
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            )}
-
-            <div className="modal-actions">
-              <Button onClick={() => setSelectedProduct(null)}>Close</Button>
             </div>
-          </div>
-        </div>
-      )}
+
+            {/* Pagination controls */}
+            <div className="pagination">
+              <div>
+                Showing <strong>{products.length}</strong> of <strong>{totalCount}</strong> products
+              </div>
+
+              <div className="pagination__actions">
+                <Button
+                  variant="ghost"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  style={{ padding: '6px 12px', fontSize: '0.84rem' }}
+                >
+                  Previous
+                </Button>
+
+                <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                  Page {page} of {totalPages}
+                </span>
+
+                <Button
+                  variant="ghost"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  style={{ padding: '6px 12px', fontSize: '0.84rem' }}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Modals */}
+      <AddProductModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        categories={categories}
+        onProductCreated={handleProductCreated}
+      />
+
+      <EditProductModal
+        isOpen={Boolean(editingProduct)}
+        onClose={() => setEditingProduct(null)}
+        product={editingProduct}
+        categories={categories}
+        onProductUpdated={handleProductUpdated}
+      />
+
+      <CategoryManagerModal
+        isOpen={isCategoryModalOpen}
+        onClose={() => setIsCategoryModalOpen(false)}
+        onCategoriesUpdated={() => {
+          loadCategories()
+          loadProductsData()
+        }}
+      />
+
+      <ProductStockModal
+        isOpen={Boolean(viewingStockProduct)}
+        onClose={() => setViewingStockProduct(null)}
+        product={viewingStockProduct}
+      />
     </div>
   )
 }

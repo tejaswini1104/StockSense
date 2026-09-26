@@ -1,16 +1,16 @@
 """StockSense FastAPI application entrypoint."""
 
 import logging
-
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.core.config import settings
 from app.db.base import Base
-from app.db.session import SessionLocal, engine
 from app.db.seed import seed_data_if_empty
+from app.db.session import IS_SQLITE, SessionLocal, engine
 import app.models  # noqa: F401
 
 logging.basicConfig(
@@ -18,15 +18,22 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
 )
 
+logger = logging.getLogger("stocksense.startup")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Ensure database tables exist
-    Base.metadata.create_all(bind=engine)
-    # Seed initial data if empty
+    if IS_SQLITE:
+        Base.metadata.create_all(bind=engine)
+        logger.warning("Running on SQLite; tables created directly (Alembic bypassed).")
+    else:
+        logger.info("Running on %s; schema managed by Alembic.", engine.url.get_backend_name())
+
     db = SessionLocal()
     try:
         seed_data_if_empty(db)
+    except Exception as exc:
+        logger.warning("Seed check skipped: %s", exc)
     finally:
         db.close()
     yield

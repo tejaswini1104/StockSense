@@ -1,184 +1,168 @@
 """Product routes."""
 
+import math
+from decimal import Decimal
+
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import func, select
-from sqlalchemy.orm import selectinload
 
 from app.core.deps import CurrentUser, DbSession
-from app.models.category import Category
-from app.models.location import Location
 from app.models.product import Product
-from app.models.stock_ledger import StockLedger
-from app.models.stock_quant import StockQuant
-from app.schemas.product import ProductCreate, ProductRead, ProductUpdate, StockQuantRead
+from app.schemas.catalog import (
+    CategorySummary,
+    ProductCreate,
+    ProductDetail,
+    ProductListResponse,
+    ProductRead,
+    ProductUpdate,
+    StockByLocation,
+)
+from app.services import catalog_service
 
 router = APIRouter(prefix="/products", tags=["Products"])
 
-
-def _build_product_read(p: Product, db: DbSession) -> ProductRead:
-    # Fetch stock quants for product
-    quants = db.scalars(
-        select(StockQuant)
-        .options(selectinload(StockQuant.location).selectinload(Location.warehouse))
-        .where(StockQuant.product_id == p.id)
-    ).all()
-
-    stock_by_loc = []
-    total_qty = 0.0
-
-    for q in quants:
-        total_qty += q.quantity
-        stock_by_loc.append(
-            StockQuantRead(
-                id=q.id,
-                product_id=q.product_id,
-                location_id=q.location_id,
-                quantity=q.quantity,
-                location_name=q.location.name if q.location else None,
-                warehouse_name=q.location.warehouse.name if (q.location and q.location.warehouse) else None,
-            )
-        )
-
-    res = ProductRead.model_validate(p)
-    res.total_stock = total_qty
-    res.is_low_stock = total_qty <= p.min_reorder_qty
-    res.stock_by_location = stock_by_loc
-    return res
+STOCK_FILTERS = ("in_stock", "low_stock", "out_of_stock")
 
 
-@router.get("", response_model=list[ProductRead])
+def _to_read(product: Product, total: Decimal) -> ProductRead:
+    return ProductRead(
+        id=product.id,
+        name=product.name,
+        sku=product.sku,
+        description=product.description,
+        unit_of_measure=product.unit_of_measure,
+        reorder_level=product.reorder_level,
+        is_active=product.is_active,
+        created_at=product.created_at,
+        category=(
+            CategorySummary(id=product.category.id, name=product.category.name)
+            if product.category
+            else None
+        ),
+        total_stock=total,
+        stock_status=catalog_service.stock_status(total, product.reorder_level),
+    )
+
+
+@router.get("", response_model=ProductListResponse, summary="List and search products")
 def list_products(
     db: DbSession,
     current_user: CurrentUser,
-    category_id: int | None = Query(default=None),
-    low_stock_only: bool = Query(default=False),
-    search: str | None = Query(default=None),
-) -> list[ProductRead]:
-    query = select(Product).options(selectinload(Product.category))
-
-    if category_id is not None:
-        query = query.where(Product.category_id == category_id)
-    if search:
-        search_term = f"%{search}%"
-        query = query.where((Product.name.ilike(search_term)) | (Product.sku.ilike(search_term)))
-
-    query = query.order_by(Product.name.asc())
-    products = db.scalars(query).all()
-
-    result = []
-    for p in products:
-        read_obj = _build_product_read(p, db)
-        if low_stock_only and not read_obj.is_low_stock:
-            continue
-        result.append(read_obj)
-
-    return result
-
-
-@router.post("", response_model=ProductRead, status_code=status.HTTP_201_CREATED)
-def create_product(payload: ProductCreate, db: DbSession, current_user: CurrentUser) -> ProductRead:
-    # Check SKU uniqueness
-    existing = db.scalars(select(Product).where(Product.sku == payload.sku)).first()
-    if existing:
+    search: str | None = Query(None, description="Match against product name or SKU"),
+    category_id: int | None = Query(None),
+    is_active: bool | None = Query(None),
+    stock: str | None = Query(None, description="in_stock | low_stock | out_of_stock"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=200),
+) -> ProductListResponse:
+    if stock is not None and stock not in STOCK_FILTERS:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Product with SKU '{payload.sku}' already exists.",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"stock must be one of: {', '.join(STOCK_FILTERS)}",
         )
 
-    if payload.category_id:
-        cat = db.get(Category, payload.category_id)
-        if not cat:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Category id {payload.category_id} not found.",
-            )
-
-    product = Product(
-        sku=payload.sku,
-        name=payload.name,
-        description=payload.description,
-        category_id=payload.category_id,
-        uom=payload.uom,
-        min_reorder_qty=payload.min_reorder_qty,
-        max_reorder_qty=payload.max_reorder_qty,
+    rows, total = catalog_service.search_products(
+        db,
+        search=search,
+        category_id=category_id,
+        is_active=is_active,
+        stock_filter=stock,
+        page=page,
+        page_size=page_size,
     )
-    db.add(product)
-    db.commit()
-    db.refresh(product)
-
-    # Initial stock setup if provided
-    if payload.initial_stock and payload.initial_stock > 0 and payload.initial_location_id:
-        loc = db.get(Location, payload.initial_location_id)
-        if loc:
-            quant = StockQuant(
-                product_id=product.id,
-                location_id=payload.initial_location_id,
-                quantity=payload.initial_stock,
-            )
-            db.add(quant)
-            # Add initial stock ledger entry
-            ledger = StockLedger(
-                reference_number=f"INIT-{product.sku}",
-                movement_type="INITIAL",
-                product_id=product.id,
-                destination_location_id=payload.initial_location_id,
-                quantity=payload.initial_stock,
-                notes="Initial Stock Creation",
-                user_id=current_user.id,
-            )
-            db.add(ledger)
-            db.commit()
-
-    return _build_product_read(product, db)
+    return ProductListResponse(
+        items=[_to_read(product, stock_total) for product, stock_total in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+        pages=max(math.ceil(total / page_size), 1),
+    )
 
 
-@router.get("/{product_id}", response_model=ProductRead)
-def get_product(product_id: int, db: DbSession, current_user: CurrentUser) -> ProductRead:
-    p = db.get(Product, product_id)
-    if not p:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found.")
-    return _build_product_read(p, db)
+@router.post(
+    "",
+    response_model=ProductDetail,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a product",
+)
+def create_product(
+    payload: ProductCreate, db: DbSession, current_user: CurrentUser
+) -> ProductDetail:
+    try:
+        product = catalog_service.create_product(db, payload)
+    except catalog_service.DuplicateSKU as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"SKU '{exc.args[0]}' is already used by another product.",
+        ) from None
+    except catalog_service.CategoryNotFound:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The selected category does not exist.",
+        ) from None
+    except catalog_service.LocationNotFound:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The selected stock location does not exist.",
+        ) from None
+
+    return _detail(db, product)
 
 
-@router.put("/{product_id}", response_model=ProductRead)
+@router.get("/{product_id}", response_model=ProductDetail, summary="Product detail")
+def read_product(product_id: int, db: DbSession, current_user: CurrentUser) -> ProductDetail:
+    try:
+        product = catalog_service.get_product(db, product_id)
+    except catalog_service.ProductNotFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Product not found."
+        ) from None
+    return _detail(db, product)
+
+
+@router.patch("/{product_id}", response_model=ProductDetail, summary="Update a product")
 def update_product(
     product_id: int, payload: ProductUpdate, db: DbSession, current_user: CurrentUser
-) -> ProductRead:
-    p = db.get(Product, product_id)
-    if not p:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found.")
-
-    if payload.sku and payload.sku != p.sku:
-        existing = db.scalars(select(Product).where(Product.sku == payload.sku)).first()
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Product with SKU '{payload.sku}' already exists.",
-            )
-        p.sku = payload.sku
-
-    if payload.name is not None:
-        p.name = payload.name
-    if payload.description is not None:
-        p.description = payload.description
-    if payload.category_id is not None:
-        p.category_id = payload.category_id
-    if payload.uom is not None:
-        p.uom = payload.uom
-    if payload.min_reorder_qty is not None:
-        p.min_reorder_qty = payload.min_reorder_qty
-    if payload.max_reorder_qty is not None:
-        p.max_reorder_qty = payload.max_reorder_qty
-
-    db.commit()
-    db.refresh(p)
-    return _build_product_read(p, db)
+) -> ProductDetail:
+    try:
+        product = catalog_service.update_product(db, product_id, payload)
+    except catalog_service.ProductNotFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Product not found."
+        ) from None
+    except catalog_service.DuplicateSKU as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"SKU '{exc.args[0]}' is already used by another product.",
+        ) from None
+    except catalog_service.CategoryNotFound:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The selected category does not exist.",
+        ) from None
+    return _detail(db, product)
 
 
-@router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_product(product_id: int, db: DbSession, current_user: CurrentUser):
-    p = db.get(Product, product_id)
-    if not p:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found.")
-    db.delete(p)
-    db.commit()
+@router.get(
+    "/{product_id}/stock",
+    response_model=list[StockByLocation],
+    summary="Stock of one product per location",
+)
+def read_product_stock(
+    product_id: int, db: DbSession, current_user: CurrentUser
+) -> list[StockByLocation]:
+    try:
+        catalog_service.get_product(db, product_id)
+    except catalog_service.ProductNotFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Product not found."
+        ) from None
+    return catalog_service.stock_by_location(db, product_id)
+
+
+def _detail(db, product: Product) -> ProductDetail:
+    total = catalog_service.total_stock_for(db, product.id)
+    base = _to_read(product, total)
+    return ProductDetail(
+        **base.model_dump(),
+        stock_by_location=catalog_service.stock_by_location(db, product.id),
+    )

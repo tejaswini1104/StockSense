@@ -11,6 +11,11 @@ from app.models.stock_quant import StockQuant
 from app.models.user import User, UserRole
 from app.models.warehouse import Warehouse
 
+try:
+    from app.models.product import ProductLocationStock, UnitOfMeasure  # noqa: F401
+except ImportError:
+    pass
+
 __all__ = [
     "Category",
     "InternalTransfer",
