@@ -50,6 +50,12 @@ class Location(Base, TimestampMixin):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    stock_quants: Mapped[list["StockQuant"]] = relationship(  # noqa: F821
+        "StockQuant",
+        back_populates="location",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     @property
     def full_name(self) -> str:

@@ -62,6 +62,12 @@ class Product(Base, TimestampMixin):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    stock_quants: Mapped[list["StockQuant"]] = relationship(  # noqa: F821
+        "StockQuant",
+        back_populates="product",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     __table_args__ = (
         CheckConstraint("reorder_level >= 0", name="ck_product_reorder_level_non_negative"),

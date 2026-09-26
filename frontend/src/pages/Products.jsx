@@ -64,9 +64,9 @@ export default function Products() {
       setTotalPages(res.pages)
     } catch (err) {
       setError(toErrorMessage(err, 'Failed to fetch products catalogue.'))
-    } font-finally={() => {
+    } finally {
       setLoading(false)
-    }}
+    }
   }, [page, pageSize, searchQuery, selectedCategory, selectedStock, selectedActive])
 
   // Load summary metrics for low stock and out of stock counts
