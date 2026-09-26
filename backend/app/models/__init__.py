@@ -1,6 +1,7 @@
 """ORM models. Imported here so Alembic & Base autogenerate discover every table."""
 
 from app.models.category import Category
+from app.models.internal_transfer import InternalTransfer, InternalTransferItem, TransferStatus
 from app.models.location import Location, LocationType
 from app.models.otp import PasswordResetOTP
 from app.models.product import Product
@@ -12,6 +13,8 @@ from app.models.warehouse import Warehouse
 
 __all__ = [
     "Category",
+    "InternalTransfer",
+    "InternalTransferItem",
     "Location",
     "LocationType",
     "PasswordResetOTP",
@@ -21,6 +24,7 @@ __all__ = [
     "ReceiptStatus",
     "StockLedger",
     "StockQuant",
+    "TransferStatus",
     "User",
     "UserRole",
     "Warehouse",

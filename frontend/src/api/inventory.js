@@ -49,6 +49,19 @@ export const createReceipt = (payload) =>
 export const validateReceipt = (id) =>
   client.post(`/receipts/${id}/validate`).then((res) => res.data)
 
+// --- Internal Transfers ---
+export const fetchInternalTransfers = (params = {}) =>
+  client.get('/internal-transfers', { params }).then((res) => res.data)
+
+export const fetchInternalTransferById = (id) =>
+  client.get(`/internal-transfers/${id}`).then((res) => res.data)
+
+export const createInternalTransfer = (payload) =>
+  client.post('/internal-transfers', payload).then((res) => res.data)
+
+export const validateInternalTransfer = (id) =>
+  client.post(`/internal-transfers/${id}/validate`).then((res) => res.data)
+
 // --- Stock Ledger & Dashboard ---
 export const fetchStockLedger = (params = {}) =>
   client.get('/stock-ledger', { params }).then((res) => res.data)
