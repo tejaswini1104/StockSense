@@ -18,9 +18,9 @@ logger = logging.getLogger("stocksense.seed")
 
 
 def seed_data_if_empty(db: Session) -> None:
-    # Seed default user if no users exist
-    existing_user = db.scalars(select(User)).first()
-    if not existing_user:
+    # Ensure default admin and manager users exist with known passwords
+    admin_user = db.scalars(select(User).where(func.lower(User.email) == "admin@stocksense.com")).first()
+    if not admin_user:
         admin_user = User(
             email="admin@stocksense.com",
             hashed_password=hash_password("Admin123!"),
@@ -28,6 +28,13 @@ def seed_data_if_empty(db: Session) -> None:
             role=UserRole.ADMIN,
             is_active=True,
         )
+        db.add(admin_user)
+    else:
+        admin_user.hashed_password = hash_password("Admin123!")
+        admin_user.is_active = True
+
+    manager_user = db.scalars(select(User).where(func.lower(User.email) == "manager@stocksense.com")).first()
+    if not manager_user:
         manager_user = User(
             email="manager@stocksense.com",
             hashed_password=hash_password("Manager123!"),
@@ -35,8 +42,12 @@ def seed_data_if_empty(db: Session) -> None:
             role=UserRole.MANAGER,
             is_active=True,
         )
-        db.add_all([admin_user, manager_user])
-        db.commit()
+        db.add(manager_user)
+    else:
+        manager_user.hashed_password = hash_password("Manager123!")
+        manager_user.is_active = True
+
+    db.commit()
 
     # Check if warehouses exist
     existing_wh = db.scalars(select(Warehouse)).first()
