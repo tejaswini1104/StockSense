@@ -1,14 +1,14 @@
-# StockSense — Inventory Management System
+# StockSense - Inventory Management System
 
 Full-stack inventory management application.
 
-**Hour 1 scope:** the foundation — FastAPI + PostgreSQL backend, authentication
+**Hour 1 scope:** the foundation - FastAPI + PostgreSQL backend, authentication
 (signup, login, logout, OTP-based password reset), and a React frontend with the
 authenticated application shell and navigation for the inventory modules.
 
 The inventory modules themselves (Products, Operations, Warehouse, Move History,
 Stock Ledger) are navigation placeholders at this stage. They intentionally show
-**no sample data** — they will render live data once their API endpoints exist.
+**no sample data** - they will render live data once their API endpoints exist.
 
 ---
 
